@@ -1,0 +1,837 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+    <h2 class="text-2xl font-bold text-gray-900 mb-2">文案审核</h2>
+    <p class="text-gray-600">审核 AI 生成的文案、深度分析和图片素材，选择需要生成视频的项目</p>
+</div>
+
+<!-- 筛选器 -->
+<div class="bg-white rounded-lg shadow p-4 mb-6">
+    <div class="flex items-center space-x-4">
+        <span class="text-sm font-medium text-gray-700">状态:</span>
+        <button onclick="filterStatus('pending')" class="status-btn px-3 py-1 rounded text-sm bg-blue-600 text-white" data-status="pending">待审核</button>
+        <button onclick="filterStatus('approved')" class="status-btn px-3 py-1 rounded text-sm bg-gray-200 text-gray-700" data-status="approved">已通过</button>
+        <button onclick="filterStatus('rejected')" class="status-btn px-3 py-1 rounded text-sm bg-gray-200 text-gray-700" data-status="rejected">已跳过</button>
+        <button onclick="filterStatus('completed')" class="status-btn px-3 py-1 rounded text-sm bg-gray-200 text-gray-700" data-status="completed">已完成</button>
+    </div>
+</div>
+
+<!-- 批量操作 -->
+<div class="bg-white rounded-lg shadow p-4 mb-6">
+    <div class="flex items-center justify-between">
+        <div class="flex items-center space-x-4">
+            <input type="checkbox" id="select-all" class="h-4 w-4" onchange="toggleSelectAll(this)">
+            <label for="select-all" class="text-sm font-medium text-gray-700">全选</label>
+            <span id="selected-count" class="text-sm text-gray-500">已选择 0 项</span>
+        </div>
+        <div class="flex space-x-3">
+            <button onclick="batchApprove()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+                批量生成视频
+            </button>
+            <button onclick="batchReject()" class="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2 rounded-lg text-sm font-medium transition">
+                批量跳过
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 列表 -->
+<div class="bg-white rounded-lg shadow">
+    <div id="review-list" class="divide-y divide-gray-200">
+        <div class="p-6 text-center text-gray-500">加载中...</div>
+    </div>
+</div>
+
+<!-- 详情弹窗 -->
+<div id="detail-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto">
+    <div class="max-w-5xl mx-auto my-8 bg-white rounded-lg shadow-lg">
+        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h3 class="text-lg font-medium text-gray-900" id="modal-title">项目详情</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+        </div>
+        <div class="p-6" id="modal-content">
+            <div class="text-center text-gray-500">加载中...</div>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-200 flex justify-between">
+            <div class="flex space-x-3">
+                <button onclick="editScript()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                    编辑文案与素材
+                </button>
+            </div>
+            <div class="flex space-x-3">
+                <button onclick="rejectFromModal()" class="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                    跳过
+                </button>
+                <button onclick="approveFromModal()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                    生成视频
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- 文案编辑弹窗 -->
+<div id="script-edit-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-50 overflow-y-auto">
+    <div class="max-w-5xl mx-auto my-8 bg-white rounded-lg shadow-lg">
+        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h3 class="text-lg font-medium text-gray-900">编辑文案与素材</h3>
+            <button onclick="closeScriptEditModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+        </div>
+        <div class="p-6 max-h-[70vh] overflow-y-auto">
+            <!-- Tab 切换 -->
+            <div class="border-b border-gray-200 mb-4">
+                <nav class="flex space-x-4">
+                    <button onclick="switchTab('script')" id="tab-script" class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-blue-500 text-blue-600">文案内容</button>
+                    <button onclick="switchTab('images')" id="tab-images" class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">图片素材</button>
+                    <button onclick="switchTab('analysis')" id="tab-analysis" class="tab-btn px-4 py-2 text-sm font-medium border-b-2 border-transparent text-gray-500 hover:text-gray-700">深度分析</button>
+                </nav>
+            </div>
+
+            <!-- 文案内容 Tab -->
+            <div id="panel-script" class="tab-panel">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">标题</label>
+                        <input type="text" id="edit-script-title" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">开场钩子</label>
+                        <input type="text" id="edit-hook-opening" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">正文内容</label>
+                        <textarea id="edit-script-content" rows="8" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">结尾引导</label>
+                        <textarea id="edit-call-to-action" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">关键亮点（JSON 格式）</label>
+                        <textarea id="edit-key-highlights" rows="6" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 font-mono text-sm"></textarea>
+                        <p class="text-xs text-gray-500 mt-1">格式：[{"title":"亮点 1","description":"描述 1"},{"title":"亮点 2","description":"描述 2"}]</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 图片素材 Tab -->
+            <div id="panel-images" class="tab-panel hidden">
+                <div class="space-y-6">
+                    <!-- 封面图片 -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="block text-sm font-medium text-gray-700">封面图片</label>
+                            <button onclick="addImage('cover')" class="text-sm text-blue-600 hover:text-blue-700">+ 添加图片</button>
+                        </div>
+                        <div id="images-cover" class="grid grid-cols-3 gap-4">
+                            <!-- 动态生成 -->
+                        </div>
+                    </div>
+
+                    <!-- 具体内容图片 -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="block text-sm font-medium text-gray-700">具体内容图片/视频</label>
+                            <button onclick="addImage('content')" class="text-sm text-blue-600 hover:text-blue-700">+ 添加图片</button>
+                        </div>
+                        <div id="images-content" class="grid grid-cols-3 gap-4">
+                            <!-- 动态生成 -->
+                        </div>
+                    </div>
+
+                    <!-- 结尾图片 -->
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <label class="block text-sm font-medium text-gray-700">结尾图片</label>
+                            <button onclick="addImage('end')" class="text-sm text-blue-600 hover:text-blue-700">+ 添加图片</button>
+                        </div>
+                        <div id="images-end" class="grid grid-cols-3 gap-4">
+                            <!-- 动态生成 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 深度分析 Tab -->
+            <div id="panel-analysis" class="tab-panel hidden">
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">使用场景</label>
+                        <textarea id="edit-use-case-scenarios" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">团队信息</label>
+                        <textarea id="edit-team-info" rows="2" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">市场前景</label>
+                        <textarea id="edit-market-prospects" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">技术栈分析</label>
+                        <textarea id="edit-tech-stack" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">竞品分析</label>
+                        <textarea id="edit-competitors" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-1">综合总结</label>
+                        <textarea id="edit-summary" rows="3" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500"></textarea>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
+            <button onclick="closeScriptEditModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium">
+                取消
+            </button>
+            <button onclick="saveScriptEdit()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                保存
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 图片上传弹窗 -->
+<div id="image-upload-modal" class="hidden fixed inset-0 bg-black bg-opacity-50 z-[60] overflow-y-auto">
+    <div class="max-w-2xl mx-auto my-16 bg-white rounded-lg shadow-lg">
+        <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
+            <h3 class="text-lg font-medium text-gray-900" id="upload-modal-title">上传图片</h3>
+            <button onclick="closeImageUploadModal()" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button>
+        </div>
+        <div class="p-6">
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-2">上传图片或视频</label>
+                <div class="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-blue-500 cursor-pointer" onclick="document.getElementById('file-input').click()">
+                    <p class="text-gray-500">点击选择文件，或拖拽文件到此处</p>
+                    <p class="text-xs text-gray-400 mt-1">支持 JPG、PNG、MP4 格式</p>
+                    <input type="file" id="file-input" class="hidden" accept="image/*,video/*" onchange="handleFileSelect(this)">
+                </div>
+            </div>
+            <div id="file-preview" class="mb-4 hidden">
+                <div class="relative">
+                    <img id="preview-img" class="max-h-64 rounded-lg" src="" alt="预览">
+                    <video id="preview-video" class="max-h-64 rounded-lg hidden" controls></video>
+                    <button onclick="removeFile()" class="absolute top-2 right-2 bg-red-600 text-white rounded-full p-1 hover:bg-red-700">&times;</button>
+                </div>
+            </div>
+            <div class="mb-4">
+                <label class="block text-sm font-medium text-gray-700 mb-1">描述</label>
+                <input type="text" id="image-description" class="w-full border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500" placeholder="图片描述">
+            </div>
+        </div>
+        <div class="px-6 py-4 border-t border-gray-200 flex justify-end space-x-3">
+            <button onclick="closeImageUploadModal()" class="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-medium">
+                取消
+            </button>
+            <button onclick="confirmUploadImage()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-medium">
+                确认添加
+            </button>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentStatus = 'pending';
+    let selectedItems = new Set();
+    let currentProject = null;
+    let currentScriptId = null;
+    let currentImageCategory = null;
+    let selectedFile = null;
+
+    document.addEventListener('DOMContentLoaded', loadReviewList);
+
+    async function loadReviewList() {
+        try {
+            const result = await apiRequest(`/api/review/list?status=${currentStatus}&page_size=20`);
+            const container = document.getElementById('review-list');
+
+            if (result.data.items.length === 0) {
+                container.innerHTML = '<div class="p-6 text-center text-gray-500">暂无数据</div>';
+                return;
+            }
+
+            container.innerHTML = result.data.items.map(item => `
+                <div class="p-4 hover:bg-gray-50">
+                    <div class="flex items-start space-x-4">
+                        <input type="checkbox" class="item-checkbox h-4 w-4 mt-1" data-id="${item.id}" onchange="updateSelectedCount()">
+                        <div class="flex-1">
+                            <div class="flex items-center justify-between">
+                                <div>
+                                    <span class="text-sm text-gray-400">#${item.rank}</span>
+                                    <span class="text-lg font-medium text-gray-900 ml-2">${item.project_name}</span>
+                                    <span class="ml-3 text-xs px-2 py-1 rounded ${getStatusClass(item.status)}">${getStatusText(item.status)}</span>
+                                </div>
+                                <div class="flex space-x-4">
+                                    <span class="text-xs text-gray-500">文案：${item.word_count}字</span>
+                                    <span class="text-xs text-gray-500">深度分析：${item.has_deep_analysis ? '✓' : '✗'}</span>
+                                    <span class="text-xs text-gray-500">图片：${item.images_count || 0}张</span>
+                                    <button onclick="viewDetail(${item.id})" class="text-blue-600 hover:text-blue-700 text-sm font-medium">查看详情</button>
+                                    <button onclick="deleteProject(${item.id})" class="text-red-600 hover:text-red-700 text-sm font-medium">移除</button>
+                                </div>
+                            </div>
+                            <p class="text-sm text-gray-600 mt-2 line-clamp-2">${item.script_preview}</p>
+                            <div class="flex space-x-3 mt-3">
+                                ${item.status === 'pending' ? `
+                                    <button onclick="approveOne(${item.id})" class="text-green-600 hover:text-green-700 text-sm font-medium">生成视频</button>
+                                    <button onclick="rejectOne(${item.id})" class="text-gray-400 hover:text-gray-600 text-sm font-medium">跳过</button>
+                                ` : ''}
+                                ${item.status === 'approved' || item.status === 'generating' ? `
+                                    <span class="text-blue-600 text-sm font-medium">视频生成中...</span>
+                                    <a href="/videos" class="text-blue-600 hover:text-blue-700 text-sm font-medium">查看进度 →</a>
+                                ` : ''}
+                                ${item.status === 'completed' ? `
+                                    <a href="${item.video_url || '#'}" target="_blank" class="text-purple-600 hover:text-purple-700 text-sm font-medium">观看视频</a>
+                                ` : ''}
+                                ${item.status === 'rejected' ? `
+                                    <span class="text-gray-400 text-sm">已跳过</span>
+                                ` : ''}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        } catch (error) {
+            document.getElementById('review-list').innerHTML = `<div class="p-6 text-center text-red-500">加载失败：${error.message}</div>`;
+        }
+    }
+
+    async function viewDetail(projectId) {
+        try {
+            const result = await apiRequest(`/api/projects/${projectId}`);
+            currentProject = result.data;
+            currentScriptId = currentProject.script?.id;
+
+            const modal = document.getElementById('detail-modal');
+            const content = document.getElementById('modal-content');
+            document.getElementById('modal-title').textContent = currentProject.full_name;
+
+            let html = `
+                <div class="space-y-6">
+                    <!-- 基础信息 -->
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <span class="text-sm text-gray-500">项目描述</span>
+                            <p class="text-gray-700">${currentProject.description || '无描述'}</p>
+                        </div>
+                        <div>
+                            <span class="text-sm text-gray-500">技术语言</span>
+                            <p class="text-gray-700">${currentProject.language || 'N/A'}</p>
+                        </div>
+                        <div>
+                            <span class="text-sm text-gray-500">Stars</span>
+                            <p class="text-gray-700">${currentProject.stars}</p>
+                        </div>
+                        <div>
+                            <span class="text-sm text-gray-500">Forks</span>
+                            <p class="text-gray-700">${currentProject.forks}</p>
+                        </div>
+                    </div>
+
+                    <!-- 基础分析 -->
+                    ${currentProject.analysis ? `
+                    <div class="border-t pt-4">
+                        <h4 class="font-medium text-gray-900 mb-2">基础分析</h4>
+                        <div class="space-y-2 text-sm text-gray-700">
+                            <p><span class="font-medium">适用范围：</span>${currentProject.analysis.use_cases || 'N/A'}</p>
+                            <p><span class="font-medium">主要用途：</span>${currentProject.analysis.purpose || 'N/A'}</p>
+                        </div>
+                    </div>
+                    ` : '<div class="text-center text-gray-500 py-4">暂无基础分析</div>'}
+
+                    <!-- 深度分析 -->
+                    ${currentProject.has_deep_analysis ? `
+                    <div class="border-t pt-4">
+                        <h4 class="font-medium text-gray-900 mb-2">深度分析</h4>
+                        <div class="space-y-3 text-sm text-gray-700">
+                            <p><span class="font-medium">使用场景：</span>${currentProject.deep_analysis?.use_case_scenarios || 'N/A'}</p>
+                            <p><span class="font-medium">市场前景：</span>${currentProject.deep_analysis?.market_prospects || 'N/A'}</p>
+                            <p><span class="font-medium">综合总结：</span>${currentProject.deep_analysis?.summary || 'N/A'}</p>
+                        </div>
+                    </div>
+                    ` : '<div class="text-center text-gray-500 py-4">暂无深度分析</div>'}
+
+                    <!-- 视频文案 -->
+                    ${currentProject.script ? `
+                    <div class="border-t pt-4">
+                        <h4 class="font-medium text-gray-900 mb-2">视频文案</h4>
+                        <div class="space-y-3 text-sm">
+                            <p><span class="font-medium text-gray-700">标题：</span>${currentProject.script.script_title}</p>
+                            <p><span class="font-medium text-gray-700">开场钩子：</span>${currentProject.script.hook_opening}</p>
+                            <p><span class="font-medium text-gray-700">正文内容：</span></p>
+                            <p class="text-gray-700 whitespace-pre-line">${currentProject.script.script_content}</p>
+                            <p><span class="font-medium text-gray-700">结尾引导：</span>${currentProject.script.call_to_action}</p>
+                        </div>
+                    </div>
+                    ` : '<div class="text-center text-gray-500 py-4">暂无文案</div>'}
+
+                    <!-- 图片素材 -->
+                    ${currentProject.images && currentProject.images.length > 0 ? `
+                    <div class="border-t pt-4">
+                        <h4 class="font-medium text-gray-900 mb-2">图片素材 (${currentProject.images.length})</h4>
+                        <div class="grid grid-cols-2 gap-4">
+                            ${currentProject.images.map(img => `
+                            <div class="border rounded p-3">
+                                <div class="flex items-center justify-between mb-2">
+                                    <span class="text-xs bg-gray-100 px-2 py-1 rounded">${img.image_type}</span>
+                                    <span class="text-xs ${img.is_generated ? 'text-green-600' : 'text-gray-400'}">${img.is_generated ? '已生成' : '待生成'}</span>
+                                </div>
+                                <p class="text-sm text-gray-700">${img.description}</p>
+                            </div>
+                            `).join('')}
+                        </div>
+                    </div>
+                    ` : '<div class="text-center text-gray-500 py-4">暂无图片素材</div>'}
+                </div>
+            `;
+
+            content.innerHTML = html;
+            modal.classList.remove('hidden');
+        } catch (error) {
+            showToast(`加载详情失败：${error.message}`, 'error');
+        }
+    }
+
+    function closeModal() {
+        document.getElementById('detail-modal').classList.add('hidden');
+        currentProject = null;
+    }
+
+    function editScript() {
+        if (!currentProject?.script) {
+            showToast('暂无文案可编辑', 'error');
+            return;
+        }
+
+        const script = currentProject.script;
+        const deepAnalysis = currentProject.deep_analysis;
+
+        // 填充文案字段
+        document.getElementById('edit-script-title').value = script.script_title || '';
+        document.getElementById('edit-hook-opening').value = script.hook_opening || '';
+        document.getElementById('edit-script-content').value = script.script_content || '';
+        document.getElementById('edit-call-to-action').value = script.call_to_action || '';
+
+        // 填充关键亮点（JSON 格式）
+        let highlights = [];
+        try {
+            highlights = script.key_highlights ? JSON.parse(script.key_highlights) : [];
+        } catch (e) {
+            highlights = [];
+        }
+        document.getElementById('edit-key-highlights').value = JSON.stringify(highlights, null, 2);
+
+        // 填充深度分析字段
+        if (deepAnalysis) {
+            document.getElementById('edit-use-case-scenarios').value = deepAnalysis.use_case_scenarios || '';
+            document.getElementById('edit-team-info').value = deepAnalysis.team_info || '';
+            document.getElementById('edit-market-prospects').value = deepAnalysis.market_prospects || '';
+            document.getElementById('edit-tech-stack').value = deepAnalysis.tech_stack || '';
+            document.getElementById('edit-competitors').value = deepAnalysis.competitors || '';
+            document.getElementById('edit-summary').value = deepAnalysis.summary || '';
+        }
+
+        // 加载图片素材
+        renderImages();
+
+        // 切换到第一个 tab
+        switchTab('script');
+
+        document.getElementById('detail-modal').classList.add('hidden');
+        document.getElementById('script-edit-modal').classList.remove('hidden');
+    }
+
+    function closeScriptEditModal() {
+        document.getElementById('script-edit-modal').classList.add('hidden');
+        document.getElementById('detail-modal').classList.remove('hidden');
+    }
+
+    async function saveScriptEdit() {
+        if (!currentScriptId) return;
+
+        // 收集文案数据
+        const data = {
+            script_title: document.getElementById('edit-script-title').value,
+            hook_opening: document.getElementById('edit-hook-opening').value,
+            script_content: document.getElementById('edit-script-content').value,
+            call_to_action: document.getElementById('edit-call-to-action').value
+        };
+
+        // 收集关键亮点数据
+        try {
+            const highlightsRaw = document.getElementById('edit-key-highlights').value;
+            data.key_highlights = highlightsRaw ? JSON.parse(highlightsRaw) : [];
+        } catch (e) {
+            showToast('关键亮点 JSON 格式错误', 'error');
+            return;
+        }
+
+        try {
+            showToast('正在保存...', 'info');
+            await apiRequest(`/api/script/${currentScriptId}`, 'PUT', data);
+
+            // 保存深度分析（如果有）
+            if (currentProject?.analysis?.deep_analysis) {
+                const deepData = {
+                    use_case_scenarios: document.getElementById('edit-use-case-scenarios').value,
+                    team_info: document.getElementById('edit-team-info').value,
+                    market_prospects: document.getElementById('edit-market-prospects').value,
+                    tech_stack: document.getElementById('edit-tech-stack').value,
+                    competitors: document.getElementById('edit-competitors').value,
+                    summary: document.getElementById('edit-summary').value
+                };
+                await apiRequest(`/api/deep-analysis/${currentProject.analysis.deep_analysis.id}`, 'PUT', deepData);
+            }
+
+            showToast('保存成功', 'success');
+            closeScriptEditModal();
+            setTimeout(loadReviewList, 1000);
+        } catch (error) {
+            showToast(`保存失败：${error.message}`, 'error');
+        }
+    }
+
+    function editDeepAnalysis() {
+        showToast('深度分析编辑功能开发中...', 'info');
+    }
+
+    function manageImages() {
+        showToast('图片管理功能开发中...', 'info');
+    }
+
+    function approveFromModal() {
+        if (!currentProject) return;
+        closeModal();
+        approveOne(currentProject.id);
+    }
+
+    function rejectFromModal() {
+        if (!currentProject) return;
+        closeModal();
+        rejectOne(currentProject.id);
+    }
+
+    function filterStatus(status) {
+        currentStatus = status;
+        document.querySelectorAll('.status-btn').forEach(btn => {
+            btn.className = btn.dataset.status === status
+                ? 'status-btn px-3 py-1 rounded text-sm bg-blue-600 text-white'
+                : 'status-btn px-3 py-1 rounded text-sm bg-gray-200 text-gray-700';
+        });
+        loadReviewList();
+    }
+
+    function getStatusClass(status) {
+        const classes = {
+            'pending': 'bg-yellow-100 text-yellow-800',
+            'approved': 'bg-blue-100 text-blue-800',
+            'generating': 'bg-blue-100 text-blue-800',
+            'rejected': 'bg-gray-100 text-gray-800',
+            'completed': 'bg-purple-100 text-purple-800'
+        };
+        return classes[status] || 'bg-gray-100 text-gray-800';
+    }
+
+    function getStatusText(status) {
+        const texts = {
+            'pending': '待审核',
+            'approved': '已通过',
+            'generating': '生成中',
+            'rejected': '已跳过',
+            'completed': '已完成'
+        };
+        return texts[status] || status;
+    }
+
+    function toggleSelectAll(checkbox) {
+        selectedItems.clear();
+        document.querySelectorAll('.item-checkbox').forEach(cb => {
+            cb.checked = checkbox.checked;
+            if (checkbox.checked) {
+                selectedItems.add(parseInt(cb.dataset.id));
+            }
+        });
+        updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+        selectedItems.clear();
+        document.querySelectorAll('.item-checkbox:checked').forEach(cb => {
+            selectedItems.add(parseInt(cb.dataset.id));
+        });
+        document.getElementById('selected-count').textContent = `已选择 ${selectedItems.size} 项`;
+    }
+
+    async function batchApprove() {
+        if (selectedItems.size === 0) {
+            showToast('请先选择项目', 'error');
+            return;
+        }
+        try {
+            showToast('正在处理...', 'info');
+            const result = await apiRequest('/api/video/approve', 'POST', {
+                project_ids: Array.from(selectedItems),
+                auto_generate: true
+            });
+            showToast(`已处理 ${result.data.queued_count} 个项目，视频正在生成中，请前往视频库查看进度`, 'success');
+            selectedItems.clear();
+            updateSelectedCount();
+            setTimeout(loadReviewList, 1000);
+        } catch (error) {
+            showToast(`处理失败：${error.message}`, 'error');
+        }
+    }
+
+    async function batchReject() {
+        if (selectedItems.size === 0) {
+            showToast('请先选择项目', 'error');
+            return;
+        }
+        try {
+            showToast('正在跳过...', 'info');
+            await apiRequest('/api/video/reject', 'POST', { project_ids: Array.from(selectedItems) });
+            showToast('已跳过选中的项目', 'success');
+            selectedItems.clear();
+            updateSelectedCount();
+            setTimeout(loadReviewList, 1000);
+        } catch (error) {
+            showToast(`操作失败：${error.message}`, 'error');
+        }
+    }
+
+    async function approveOne(id) {
+        try {
+            showToast('正在提交生成请求...', 'info');
+            const result = await apiRequest('/api/video/approve', 'POST', {
+                project_ids: [id],
+                auto_generate: true
+            });
+            showToast(`视频生成已启动，${result.data.queued_count} 个任务已加入队列`, 'success');
+            // 延迟刷新，让用户看到提示
+            setTimeout(() => {
+                loadReviewList();
+            }, 1500);
+        } catch (error) {
+            showToast(`生成失败：${error.message}`, 'error');
+        }
+    }
+
+    async function rejectOne(id) {
+        try {
+            await apiRequest('/api/video/reject', 'POST', { project_ids: [id] });
+            showToast('已跳过', 'success');
+            setTimeout(loadReviewList, 1000);
+        } catch (error) {
+            showToast(`操作失败：${error.message}`, 'error');
+        }
+    }
+
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg text-white shadow-lg ${type === 'error' ? 'bg-red-600' : 'bg-green-600'}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    // Tab 切换
+    function switchTab(tabName) {
+        document.querySelectorAll('.tab-panel').forEach(panel => {
+            panel.classList.add('hidden');
+        });
+        document.querySelectorAll('.tab-btn').forEach(btn => {
+            btn.classList.remove('border-blue-500', 'text-blue-600');
+            btn.classList.add('border-transparent', 'text-gray-500');
+        });
+
+        document.getElementById(`panel-${tabName}`).classList.remove('hidden');
+        const activeBtn = document.getElementById(`tab-${tabName}`);
+        activeBtn.classList.remove('border-transparent', 'text-gray-500');
+        activeBtn.classList.add('border-blue-500', 'text-blue-600');
+    }
+
+    // 添加图片
+    function addImage(category) {
+        currentImageCategory = category;
+        selectedFile = null;
+        document.getElementById('file-input').value = '';
+        document.getElementById('file-preview').classList.add('hidden');
+        document.getElementById('image-description').value = '';
+
+        const categoryNames = {
+            'cover': '封面图片',
+            'content': '具体内容图片/视频',
+            'end': '结尾图片'
+        };
+        document.getElementById('upload-modal-title').textContent = `添加${categoryNames[category] || '图片'}`;
+        document.getElementById('image-upload-modal').classList.remove('hidden');
+    }
+
+    function closeImageUploadModal() {
+        document.getElementById('image-upload-modal').classList.add('hidden');
+        selectedFile = null;
+    }
+
+    function handleFileSelect(input) {
+        const file = input.files[0];
+        if (!file) return;
+
+        selectedFile = file;
+        const previewContainer = document.getElementById('file-preview');
+        const previewImg = document.getElementById('preview-img');
+        const previewVideo = document.getElementById('preview-video');
+
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            previewContainer.classList.remove('hidden');
+            if (file.type.startsWith('video/')) {
+                previewImg.classList.add('hidden');
+                previewVideo.classList.remove('hidden');
+                previewVideo.src = e.target.result;
+            } else {
+                previewVideo.classList.add('hidden');
+                previewImg.classList.remove('hidden');
+                previewImg.src = e.target.result;
+            }
+        };
+        reader.readAsDataURL(file);
+    }
+
+    function removeFile() {
+        selectedFile = null;
+        document.getElementById('file-input').value = '';
+        document.getElementById('file-preview').classList.add('hidden');
+    }
+
+    async function confirmUploadImage() {
+        if (!selectedFile) {
+            showToast('请选择文件', 'error');
+            return;
+        }
+
+        if (!currentProject) {
+            showToast('项目信息丢失', 'error');
+            return;
+        }
+
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('project_id', currentProject.id);
+        formData.append('image_type', currentImageCategory);
+        formData.append('description', document.getElementById('image-description').value);
+
+        try {
+            showToast('正在上传...', 'info');
+            const response = await fetch('/api/images/upload', {
+                method: 'POST',
+                body: formData
+            });
+            const result = await response.json();
+
+            if (result.success) {
+                showToast('上传成功', 'success');
+                closeImageUploadModal();
+                renderImages();
+            } else {
+                showToast(`上传失败：${result.message}`, 'error');
+            }
+        } catch (error) {
+            showToast(`上传失败：${error.message}`, 'error');
+        }
+    }
+
+    async function renderImages() {
+        if (!currentProject) return;
+
+        try {
+            const result = await apiRequest(`/api/images?project_id=${currentProject.id}&page_size=100`);
+            const images = result.data.items || [];
+
+            // 按类型分组
+            const grouped = {
+                cover: images.filter(img => img.image_type === 'cover'),
+                content: images.filter(img => img.image_type === 'content'),
+                end: images.filter(img => img.image_type === 'end')
+            };
+
+            ['cover', 'content', 'end'].forEach(type => {
+                const container = document.getElementById(`images-${type}`);
+                if (!container) return;
+
+                const typeImages = grouped[type] || [];
+                if (typeImages.length === 0) {
+                    container.innerHTML = '<div class="col-span-3 text-center text-gray-400 text-sm py-4">暂无图片</div>';
+                    return;
+                }
+
+                container.innerHTML = typeImages.map(img => `
+                    <div class="relative group border rounded-lg overflow-hidden">
+                        ${img.image_type === 'content' && img.image_path?.endsWith('.mp4') ? `
+                            <video src="${img.image_url}" class="w-full h-32 object-cover"></video>
+                        ` : `
+                            <img src="${img.image_url}" class="w-full h-32 object-cover">
+                        `}
+                        <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-50 transition flex items-center justify-center">
+                            <button onclick="deleteImage(${img.id})" class="opacity-0 group-hover:opacity-100 bg-red-600 text-white px-3 py-1 rounded text-sm hover:bg-red-700">
+                                删除
+                            </button>
+                        </div>
+                        <div class="p-2">
+                            <p class="text-xs text-gray-600 truncate">${img.description || '无描述'}</p>
+                        </div>
+                    </div>
+                `).join('');
+            });
+        } catch (error) {
+            console.error('加载图片失败:', error);
+        }
+    }
+
+    async function deleteImage(imageId) {
+        if (!confirm('确定要删除这张图片吗？')) return;
+
+        try {
+            showToast('正在删除...', 'info');
+            await apiRequest(`/api/images/${imageId}`, 'DELETE');
+            showToast('删除成功', 'success');
+            renderImages();
+        } catch (error) {
+            showToast(`删除失败：${error.message}`, 'error');
+        }
+    }
+
+    async function deleteProject(projectId) {
+        if (!confirm('确定要删除这个项目吗？这将同时删除所有关联的文案、分析和视频。')) return;
+
+        try {
+            showToast('正在删除...', 'info');
+            await apiRequest(`/api/project/${projectId}`, 'DELETE');
+            showToast('已删除', 'success');
+            setTimeout(loadReviewList, 1000);
+        } catch (error) {
+            showToast(`删除失败：${error.message}`, 'error');
+        }
+    }
+
+    async function apiRequest(endpoint, method = 'GET', data = null) {
+        const options = {
+            method,
+            headers: { 'Content-Type': 'application/json' }
+        };
+        if (data) options.body = JSON.stringify(data);
+
+        const response = await fetch(endpoint, options);
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.message || '请求失败');
+        }
+
+        return result;
+    }
+</script>
+{% endblock %}

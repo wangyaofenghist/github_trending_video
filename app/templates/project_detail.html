@@ -1,0 +1,356 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+    <a href="/" class="text-blue-600 hover:underline text-sm mb-4 inline-block">← 返回列表</a>
+
+    <!-- 项目基本信息 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <h2 class="text-2xl font-bold text-gray-900 mb-4">{{ project.full_name }}</h2>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <div>
+                <span class="text-sm text-gray-500">描述</span>
+                <p class="text-gray-700">{{ project.description or '无描述' }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">语言</span>
+                <p class="text-gray-700">{{ project.language or 'N/A' }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Stars</span>
+                <p class="text-gray-700">{{ project.stars | default(0, true) | int }}</p>
+            </div>
+            <div>
+                <span class="text-sm text-gray-500">Forks</span>
+                <p class="text-gray-700">{{ project.forks | default(0, true) | int }}</p>
+            </div>
+        </div>
+
+        <div class="flex space-x-4">
+            <a href="{{ project.html_url }}" target="_blank" class="text-blue-600 hover:underline">查看 GitHub 项目 →</a>
+            {% if not has_queued %}
+            <button onclick="addToQueue()" class="text-green-600 hover:text-green-700 font-medium">加入审核队列</button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 操作按钮区域 -->
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">操作</h3>
+        <div class="flex flex-wrap gap-4">
+            {% if not project.analysis %}
+            <button onclick="analyzeProject()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium">
+                AI 分析 README
+            </button>
+            {% endif %}
+
+            {% if project.analysis and not has_deep_analysis %}
+            <button onclick="deepAnalyzeProject()" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium">
+                深入分析
+            </button>
+            {% endif %}
+
+            {% if project.analysis and images_count == 0 %}
+            <button onclick="generateImages()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium">
+                生成图片提示词
+            </button>
+            {% endif %}
+
+            {% if project.script %}
+            <button onclick="addToQueue()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium">
+                加入审核队列
+            </button>
+            <a href="/scripts/{{ project.script.id }}/edit" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-2 rounded-lg font-medium">
+                编辑文案
+            </a>
+            {% elif project.analysis %}
+            <button onclick="generateScript()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium">
+                生成文案
+            </button>
+            {% endif %}
+        </div>
+    </div>
+
+    <!-- 基础分析 -->
+    {% if project.analysis %}
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-lg font-medium text-gray-900">基础分析</h3>
+            <span class="text-xs text-gray-500">{{ project.analysis.analyzed_at.strftime('%Y-%m-%d %H:%M') if project.analysis.analyzed_at else '' }}</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <!-- 左侧：项目概述 -->
+            <div class="space-y-4">
+                <div class="border-b pb-3">
+                    <h4 class="text-sm font-medium text-gray-700 mb-2">📋 项目概述</h4>
+                    <p class="text-sm text-gray-600">{{ project.analysis.use_cases or '暂无概述' }}</p>
+                </div>
+                <div class="border-b pb-3">
+                    <h4 class="text-sm font-medium text-gray-700 mb-2">🎯 主要用途</h4>
+                    <p class="text-sm text-gray-600">{{ project.analysis.purpose or '暂无描述' }}</p>
+                </div>
+                <div>
+                    <h4 class="text-sm font-medium text-gray-700 mb-2">⚡ 快速开始</h4>
+                    {% if project.analysis.install_command %}
+                    <div class="bg-gray-50 rounded p-3 mb-2">
+                        <span class="text-xs text-gray-500">安装命令</span>
+                        <code class="block text-sm text-gray-700 font-mono mt-1">{{ project.analysis.install_command }}</code>
+                    </div>
+                    {% endif %}
+                    {% if project.analysis.quick_start %}
+                    <div class="bg-gray-50 rounded p-3">
+                        <span class="text-xs text-gray-500">使用示例</span>
+                        <pre class="text-sm text-gray-700 font-mono mt-1 whitespace-pre-wrap">{{ project.analysis.quick_start }}</pre>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+
+            <!-- 右侧：核心特色 -->
+            <div>
+                <h4 class="text-sm font-medium text-gray-700 mb-3">✨ 核心特色</h4>
+                {% set features = project.analysis.features %}
+                {% if features is string %}
+                    {% set features = features | from_json %}
+                {% endif %}
+                {% if features and features|length > 0 %}
+                <div class="space-y-3">
+                    {% for feature in features %}
+                    <div class="border-l-4 border-blue-500 pl-4 py-2 bg-blue-50 rounded-r">
+                        <p class="text-sm font-medium text-gray-900">{{ feature.name or feature.title or '特色' + loop.index|string }}</p>
+                        <p class="text-sm text-gray-600 mt-1">{{ feature.description or feature }}</p>
+                    </div>
+                    {% endfor %}
+                </div>
+                {% else %}
+                <p class="text-sm text-gray-500">暂无核心特色数据</p>
+                {% endif %}
+
+                <!-- 官方文档链接 -->
+                <div class="mt-6">
+                    {% if project.analysis.official_docs %}
+                    <a href="{{ project.analysis.official_docs }}" target="_blank" class="inline-flex items-center text-blue-600 hover:text-blue-700 text-sm">
+                        📖 查看官方文档
+                        <svg class="w-4 h-4 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 01-2-2V2a2 2 0 012-2h4a2 2 0 012 2v4m-4 4l10 10M21 21V11a2 2 0 00-2-2H11"></path></svg>
+                    </a>
+                    {% else %}
+                    <p class="text-sm text-gray-500">暂无官方文档链接</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 深度分析 -->
+    {% if has_deep_analysis %}
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <div class="flex items-center justify-between mb-6">
+            <div>
+                <h3 class="text-lg font-medium text-gray-900">深度分析</h3>
+                <p class="text-sm text-gray-500 mt-1">产品视角深度解读 - 为什么这个项目值得关注</p>
+            </div>
+            <span class="text-xs text-gray-500">{{ deep_analysis.created_at.strftime('%Y-%m-%d %H:%M') if deep_analysis.created_at else '' }}</span>
+        </div>
+
+        <div class="space-y-6">
+            <!-- 使用场景 - 目标用户和产品定位 -->
+            <div class="border rounded-lg p-5 bg-gradient-to-r from-blue-50 to-white">
+                <h4 class="text-base font-medium text-gray-900 mb-3 flex items-center">
+                    <span class="w-8 h-8 bg-blue-100 rounded-full flex items-center justify-center mr-2 text-lg">🎯</span>
+                    目标用户与使用场景
+                </h4>
+                <div class="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
+                    {{ deep_analysis.use_case_scenarios or '暂无使用场景分析' }}
+                </div>
+            </div>
+
+            <!-- 团队与背景 -->
+            <div class="border rounded-lg p-5 bg-gradient-to-r from-purple-50 to-white">
+                <h4 class="text-base font-medium text-gray-900 mb-3 flex items-center">
+                    <span class="w-8 h-8 bg-purple-100 rounded-full flex items-center justify-center mr-2 text-lg">👥</span>
+                    团队背景与社区生态
+                </h4>
+                <div class="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
+                    {{ deep_analysis.team_info or '暂无团队信息分析' }}
+                </div>
+            </div>
+
+            <!-- 技术栈与架构 -->
+            <div class="border rounded-lg p-5 bg-gradient-to-r from-green-50 to-white">
+                <h4 class="text-base font-medium text-gray-900 mb-3 flex items-center">
+                    <span class="w-8 h-8 bg-green-100 rounded-full flex items-center justify-center mr-2 text-lg">⚙️</span>
+                    技术栈与架构优势
+                </h4>
+                <div class="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
+                    {{ deep_analysis.tech_stack or '暂无技术栈分析' }}
+                </div>
+            </div>
+
+            <!-- 竞品分析 -->
+            <div class="border rounded-lg p-5 bg-gradient-to-r from-yellow-50 to-white">
+                <h4 class="text-base font-medium text-gray-900 mb-3 flex items-center">
+                    <span class="w-8 h-8 bg-yellow-100 rounded-full flex items-center justify-center mr-2 text-lg">📊</span>
+                    竞品对比与差异化
+                </h4>
+                <div class="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
+                    {{ deep_analysis.competitors or '暂无竞品分析' }}
+                </div>
+            </div>
+
+            <!-- 市场前景 -->
+            <div class="border rounded-lg p-5 bg-gradient-to-r from-indigo-50 to-white">
+                <h4 class="text-base font-medium text-gray-900 mb-3 flex items-center">
+                    <span class="w-8 h-8 bg-indigo-100 rounded-full flex items-center justify-center mr-2 text-lg">📈</span>
+                    市场前景与技术趋势
+                </h4>
+                <div class="text-sm text-gray-700 whitespace-pre-line leading-relaxed">
+                    {{ deep_analysis.market_prospects or '暂无市场前景分析' }}
+                </div>
+            </div>
+
+            <!-- 综合总结 - 重点突出 -->
+            <div class="border-2 border-gray-200 rounded-lg p-5 bg-gray-50">
+                <h4 class="text-base font-medium text-gray-900 mb-3 flex items-center">
+                    <span class="w-8 h-8 bg-gray-200 rounded-full flex items-center justify-center mr-2 text-lg">💡</span>
+                    产品专家总结
+                </h4>
+                <div class="text-sm text-gray-800 whitespace-pre-line leading-relaxed font-medium">
+                    {{ deep_analysis.summary or '暂无总结' }}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 图片资源 -->
+    {% if images_count > 0 %}
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">图片素材 ({{ images_count }})</h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {% for image in images %}
+            <div class="border rounded-lg p-4">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs bg-gray-100 px-2 py-1 rounded">{{ image.image_type }}</span>
+                    <span class="text-xs text-gray-500">{{ '已生成' if image.is_generated else '待生成' }}</span>
+                </div>
+                <p class="text-sm text-gray-700 mb-2">{{ image.description }}</p>
+                <p class="text-xs text-gray-500 font-mono">{{ image.prompt[:80] }}...</p>
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- 视频文案 -->
+    {% if project.script %}
+    <div class="bg-white rounded-lg shadow p-6 mb-6">
+        <h3 class="text-lg font-medium text-gray-900 mb-4">视频文案</h3>
+        <div class="space-y-4">
+            <div>
+                <span class="text-sm font-medium text-gray-700">标题</span>
+                <p class="text-gray-900">{{ project.script.script_title }}</p>
+            </div>
+            <div>
+                <span class="text-sm font-medium text-gray-700">开场钩子</span>
+                <p class="text-gray-700">{{ project.script.hook_opening }}</p>
+            </div>
+            <div>
+                <span class="text-sm font-medium text-gray-700">正文</span>
+                <p class="text-gray-700 whitespace-pre-line">{{ project.script.script_content }}</p>
+            </div>
+            <div>
+                <span class="text-sm font-medium text-gray-700">结尾引导</span>
+                <p class="text-gray-700">{{ project.script.call_to_action }}</p>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function showToast(message, type = 'info') {
+        // 简单的 toast 实现
+        const toast = document.createElement('div');
+        toast.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg text-white ${type === 'error' ? 'bg-red-600' : 'bg-green-600'}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    async function apiRequest(endpoint, method = 'GET', data = null) {
+        const options = {
+            method,
+            headers: { 'Content-Type': 'application/json' }
+        };
+        if (data) options.body = JSON.stringify(data);
+
+        const response = await fetch(endpoint, options);
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.message || '请求失败');
+        }
+
+        return result;
+    }
+
+    async function analyzeProject() {
+        try {
+            showToast('开始分析项目...', 'info');
+            const result = await apiRequest('/api/analyze', 'POST', { project_id: {{ project.id }} });
+            showToast('分析完成', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } catch (error) {
+            showToast(`分析失败：${error.message}`, 'error');
+        }
+    }
+
+    async function deepAnalyzeProject() {
+        try {
+            showToast('开始深度分析...', 'info');
+            const result = await apiRequest('/api/analyze/deep', 'POST', { project_id: {{ project.id }} });
+            showToast('深度分析完成', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } catch (error) {
+            showToast(`深度分析失败：${error.message}`, 'error');
+        }
+    }
+
+    async function generateScript() {
+        try {
+            showToast('开始生成文案...', 'info');
+            const result = await apiRequest('/api/script/generate', 'POST', { project_id: {{ project.id }} });
+            showToast('文案生成完成', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } catch (error) {
+            showToast(`生成失败：${error.message}`, 'error');
+        }
+    }
+
+    async function generateImages() {
+        try {
+            showToast('开始生成图片提示词...', 'info');
+            const result = await apiRequest('/api/analyze/images', 'POST', { project_id: {{ project.id }} });
+            showToast(`生成${result.data.prompts.length}个图片提示词`, 'success');
+            setTimeout(() => location.reload(), 1000);
+        } catch (error) {
+            showToast(`生成失败：${error.message}`, 'error');
+        }
+    }
+
+    async function addToQueue() {
+        try {
+            showToast('正在加入审核队列...', 'info');
+            const result = await apiRequest('/api/video/queue', 'POST', { project_id: {{ project.id }} });
+            showToast('已加入审核队列', 'success');
+            setTimeout(() => location.reload(), 1000);
+        } catch (error) {
+            showToast(`加入队列失败：${error.message}`, 'error');
+        }
+    }
+</script>
+{% endblock %}

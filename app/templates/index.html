@@ -1,0 +1,209 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="mb-8">
+    <h2 class="text-2xl font-bold text-gray-900 mb-2">项目概览</h2>
+    <p class="text-gray-600">最新抓取日期：{{ latest_date or '暂无数据' }}</p>
+</div>
+
+<!-- 统计卡片 -->
+<div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="text-sm font-medium text-gray-500">项目总数</div>
+        <div class="mt-2 text-3xl font-bold text-gray-900">{{ stats.total_projects }}</div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="text-sm font-medium text-gray-500">已分析</div>
+        <div class="mt-2 text-3xl font-bold text-green-600">{{ stats.analyzed }}</div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="text-sm font-medium text-gray-500">已生成文案</div>
+        <div class="mt-2 text-3xl font-bold text-blue-600">{{ stats.scripted }}</div>
+    </div>
+    <div class="bg-white rounded-lg shadow p-6">
+        <div class="text-sm font-medium text-gray-500">视频已生成</div>
+        <div class="mt-2 text-3xl font-bold text-purple-600">{{ stats.video_generated }}</div>
+    </div>
+</div>
+
+<!-- 操作按钮 -->
+<div class="bg-white rounded-lg shadow p-6 mb-8">
+    <h3 class="text-lg font-medium text-gray-900 mb-4">操作</h3>
+    <div class="flex space-x-4">
+        <button onclick="triggerCrawl()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg font-medium transition">
+            立即抓取
+        </button>
+        <a href="/review" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-lg font-medium transition">
+            进入审核页面
+        </a>
+        <a href="/videos" class="bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 rounded-lg font-medium transition">
+            视频库
+        </a>
+    </div>
+</div>
+
+<!-- 项目列表 -->
+<div class="bg-white rounded-lg shadow">
+    <div class="px-6 py-4 border-b border-gray-200">
+        <h3 class="text-lg font-medium text-gray-900">项目列表</h3>
+    </div>
+    <div id="project-list" class="divide-y divide-gray-200">
+        <div class="p-6 text-center text-gray-500">加载中...</div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // 页面加载时获取项目列表
+    document.addEventListener('DOMContentLoaded', loadProjects);
+
+    async function loadProjects() {
+        try {
+            const result = await apiRequest('/api/projects?per_page=25');
+            const container = document.getElementById('project-list');
+
+            if (result.data.projects.length === 0) {
+                container.innerHTML = '<div class="p-6 text-center text-gray-500">暂无数据，点击"立即抓取"获取最新趋势</div>';
+                return;
+            }
+
+            container.innerHTML = result.data.projects.map(p => `
+                <div class="p-4 hover:bg-gray-50 flex items-center justify-between">
+                    <div class="flex-1">
+                        <div class="flex items-center space-x-2">
+                            <span class="text-sm font-medium text-gray-400">#${p.rank}</span>
+                            <a href="/projects/${p.id}" class="text-blue-600 hover:underline font-medium">
+                                ${p.full_name}
+                            </a>
+                            ${p.language ? `<span class="text-xs bg-gray-200 px-2 py-1 rounded">${p.language}</span>` : ''}
+                        </div>
+                        <p class="text-sm text-gray-600 mt-1">${p.description || '无描述'}</p>
+                        <div class="flex items-center space-x-4 mt-2 text-xs text-gray-500">
+                            <span>⭐ ${p.stars.toLocaleString()}</span>
+                            <span>🍴 ${p.forks.toLocaleString()}</span>
+                        </div>
+                        <div class="flex items-center space-x-2 mt-2">
+                            <span class="text-xs px-2 py-1 rounded ${p.has_analysis ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600'}">
+                                ${p.has_analysis ? '✓ 已分析' : '未分析'}
+                            </span>
+                            <span class="text-xs px-2 py-1 rounded ${p.has_deep_analysis ? 'bg-purple-100 text-purple-700' : 'bg-gray-100 text-gray-600'}">
+                                ${p.has_deep_analysis ? '✓ 深度分析' : '无深度分析'}
+                            </span>
+                            <span class="text-xs px-2 py-1 rounded ${p.has_script ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'}">
+                                ${p.has_script ? '✓ 有文案' : '无文案'}
+                            </span>
+                            <span class="text-xs px-2 py-1 rounded ${p.video_status === 'completed' ? 'bg-green-100 text-green-700' : p.video_status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}">
+                                ${p.video_status === 'completed' ? '✓ 视频完成' : p.video_status === 'pending' ? '✓ 待审核' : '无视频'}
+                            </span>
+                        </div>
+                    </div>
+                    <div class="flex space-x-3">
+                        ${!p.has_analysis ? `<button onclick="analyzeProject(${p.id})" class="text-green-600 hover:text-green-700 text-sm font-medium">分析</button>` : ''}
+                        ${p.has_analysis && !p.has_deep_analysis ? `<button onclick="deepAnalyzeProject(${p.id})" class="text-purple-600 hover:text-purple-700 text-sm font-medium">深入分析</button>` : ''}
+                        ${!p.has_script && p.has_analysis ? `<button onclick="generateScript(${p.id})" class="text-blue-600 hover:text-blue-700 text-sm font-medium">生成文案</button>` : ''}
+                        ${p.has_script && p.video_status !== 'pending' && p.video_status !== 'completed' ? `<button onclick="addToQueue(${p.id})" class="text-green-600 hover:text-green-700 text-sm font-medium">加入审核</button>` : ''}
+                        <button onclick="deleteProject(${p.id})" class="text-red-600 hover:text-red-700 text-sm font-medium">移除</button>
+                        <a href="/projects/${p.id}" class="text-gray-600 hover:text-gray-900 text-sm font-medium">详情</a>
+                    </div>
+                </div>
+            `).join('');
+        } catch (error) {
+            document.getElementById('project-list').innerHTML = `<div class="p-6 text-center text-red-500">加载失败：${error.message}</div>`;
+        }
+    }
+
+    async function triggerCrawl() {
+        try {
+            showToast('开始抓取...', 'info');
+            const result = await apiRequest('/api/crawl', 'POST', {});
+            showToast(`抓取完成，共 ${result.data.crawled_count} 个项目`, 'success');
+            setTimeout(loadProjects, 1000);
+        } catch (error) {
+            showToast(`抓取失败：${error.message}`, 'error');
+        }
+    }
+
+    async function analyzeProject(projectId) {
+        try {
+            showToast('开始分析项目...', 'info');
+            const result = await apiRequest('/api/analyze', 'POST', { project_id: projectId });
+            showToast('分析完成', 'success');
+            setTimeout(loadProjects, 1000);
+        } catch (error) {
+            showToast(`分析失败：${error.message}`, 'error');
+        }
+    }
+
+    async function deepAnalyzeProject(projectId) {
+        try {
+            showToast('开始深度分析...', 'info');
+            const result = await apiRequest('/api/analyze/deep', 'POST', { project_id: projectId });
+            showToast('深度分析完成', 'success');
+            setTimeout(loadProjects, 1000);
+        } catch (error) {
+            showToast(`深度分析失败：${error.message}`, 'error');
+        }
+    }
+
+    async function generateScript(projectId) {
+        try {
+            showToast('开始生成文案...', 'info');
+            const result = await apiRequest('/api/script/generate', 'POST', { project_id: projectId });
+            showToast('文案生成完成', 'success');
+            setTimeout(loadProjects, 1000);
+        } catch (error) {
+            showToast(`生成失败：${error.message}`, 'error');
+        }
+    }
+
+    async function addToQueue(projectId) {
+        try {
+            showToast('正在加入审核队列...', 'info');
+            const result = await apiRequest('/api/video/queue', 'POST', { project_id: projectId });
+            showToast('已加入审核队列', 'success');
+            setTimeout(loadProjects, 1000);
+        } catch (error) {
+            showToast(`加入队列失败：${error.message}`, 'error');
+        }
+    }
+
+    async function deleteProject(projectId) {
+        if (!confirm('确定要删除这个项目吗？这将同时删除所有关联的文案、分析和视频。')) return;
+
+        try {
+            showToast('正在删除...', 'info');
+            await apiRequest(`/api/project/${projectId}`, 'DELETE');
+            showToast('已删除', 'success');
+            setTimeout(loadProjects, 1000);
+        } catch (error) {
+            showToast(`删除失败：${error.message}`, 'error');
+        }
+    }
+
+    function showToast(message, type = 'info') {
+        const toast = document.createElement('div');
+        toast.className = `fixed bottom-4 right-4 px-6 py-3 rounded-lg text-white shadow-lg ${type === 'error' ? 'bg-red-600' : 'bg-green-600'}`;
+        toast.textContent = message;
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 3000);
+    }
+
+    async function apiRequest(endpoint, method = 'GET', data = null) {
+        const options = {
+            method,
+            headers: { 'Content-Type': 'application/json' }
+        };
+        if (data) options.body = JSON.stringify(data);
+
+        const response = await fetch(endpoint, options);
+        const result = await response.json();
+
+        if (!response.ok) {
+            throw new Error(result.message || '请求失败');
+        }
+
+        return result;
+    }
+</script>
+{% endblock %}
