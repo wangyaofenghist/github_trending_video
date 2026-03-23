@@ -4,7 +4,7 @@
 from flask import Blueprint, request, jsonify
 from datetime import datetime
 from app import db
-from app.models import TrendingProject
+from app.models import TrendingProject, CrawlBatch
 from app.services.crawler import GitHubCrawler
 from flask import current_app
 import logging
@@ -148,6 +148,18 @@ def get_project(project_id):
         if hasattr(project, 'images'):
             result['images'] = [img.to_dict() for img in project.images.all()]
 
+        # 获取历史上榜记录
+        history = TrendingProject.get_history(project.full_name, limit=10)
+        result['history'] = [
+            {
+                'crawl_date': h.crawl_date.isoformat(),
+                'rank': h.rank,
+                'stars': h.stars,
+                'forks': h.forks
+            }
+            for h in history
+        ]
+
         return jsonify({
             'success': True,
             'data': result
@@ -157,4 +169,56 @@ def get_project(project_id):
         return jsonify({
             'success': False,
             'message': f'获取项目详情失败：{str(e)}'
+        }), 500
+
+
+@crawl_bp.route('/crawl-dates', methods=['GET'])
+def get_crawl_dates():
+    """获取所有抓取日期列表"""
+    try:
+        batches = CrawlBatch.query.order_by(CrawlBatch.crawl_date.desc()).all()
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'batches': [batch.to_dict() for batch in batches]
+            }
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'获取抓取日期列表失败：{str(e)}'
+        }), 500
+
+
+@crawl_bp.route('/projects/<int:project_id>/history', methods=['GET'])
+def get_project_history(project_id):
+    """获取项目的历史上榜记录"""
+    try:
+        project = TrendingProject.query.get_or_404(project_id)
+        history = TrendingProject.get_history(project.full_name, limit=20)
+
+        return jsonify({
+            'success': True,
+            'data': {
+                'full_name': project.full_name,
+                'history': [
+                    {
+                        'crawl_date': h.crawl_date.isoformat(),
+                        'rank': h.rank,
+                        'stars': h.stars,
+                        'forks': h.forks,
+                        'language': h.language,
+                        'description': h.description
+                    }
+                    for h in history
+                ]
+            }
+        })
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'message': f'获取项目历史失败：{str(e)}'
         }), 500

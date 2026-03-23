@@ -3,6 +3,31 @@ from datetime import datetime
 import json
 
 
+class CrawlBatch(db.Model):
+    """抓取批次表 - 记录每次抓取的元数据"""
+    __tablename__ = 'crawl_batches'
+
+    id = db.Column(db.Integer, primary_key=True)
+    crawl_date = db.Column(db.Date, nullable=False, index=True, unique=True)  # 每天只记录一次抓取批次
+    projects_count = db.Column(db.Integer, default=0)  # 抓取的项目数量
+    status = db.Column(db.String(50), default='completed')  # completed/failed/partial
+    started_at = db.Column(db.DateTime)
+    completed_at = db.Column(db.DateTime)
+    error_message = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'crawl_date': self.crawl_date.isoformat() if self.crawl_date else None,
+            'projects_count': self.projects_count,
+            'status': self.status,
+            'started_at': self.started_at.isoformat() if self.started_at else None,
+            'completed_at': self.completed_at.isoformat() if self.completed_at else None,
+            'created_at': self.created_at.isoformat() if self.created_at else None
+        }
+
+
 class TrendingProject(db.Model):
     """GitHub Trending 项目表"""
     __tablename__ = 'trending_projects'
@@ -12,7 +37,7 @@ class TrendingProject(db.Model):
     rank = db.Column(db.Integer, nullable=False)
     owner = db.Column(db.String(100), nullable=False)
     name = db.Column(db.String(200), nullable=False)
-    full_name = db.Column(db.String(300), nullable=False, unique=True)
+    full_name = db.Column(db.String(300), nullable=False, index=True)  # 移除 unique=True，允许同一项目多条记录
     description = db.Column(db.Text)
     language = db.Column(db.String(50))
     stars = db.Column(db.Integer, default=0)
@@ -28,6 +53,19 @@ class TrendingProject(db.Model):
     script = db.relationship('VideoScript', backref='project', uselist=False, cascade='all, delete-orphan')
     video_task = db.relationship('VideoTask', backref='project', uselist=False, cascade='all, delete-orphan')
     images = db.relationship('ImageAsset', backref='project', lazy='dynamic', cascade='all, delete-orphan')
+
+    @staticmethod
+    def get_history(full_name, limit=10):
+        """获取项目的历史上榜记录"""
+        return TrendingProject.query.filter_by(full_name=full_name)\
+            .order_by(TrendingProject.crawl_date.desc())\
+            .limit(limit).all()
+
+    @staticmethod
+    def get_by_date(crawl_date):
+        """获取指定日期的抓取列表"""
+        return TrendingProject.query.filter_by(crawl_date=crawl_date)\
+            .order_by(TrendingProject.rank).all()
 
     def to_dict(self):
         """转换为字典"""

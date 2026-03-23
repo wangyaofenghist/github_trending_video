@@ -42,10 +42,23 @@
     </div>
 </div>
 
+<!-- 日期选择器 -->
+<div class="bg-white rounded-lg shadow p-6 mb-8">
+    <h3 class="text-lg font-medium text-gray-900 mb-4">历史抓取记录</h3>
+    <div class="flex items-center space-x-4">
+        <label class="text-sm text-gray-600">选择日期：</label>
+        <select id="dateSelector" onchange="loadProjectsWithDate(this.value)" class="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            <option value="">加载中...</option>
+        </select>
+        <span id="dateInfo" class="text-sm text-gray-500"></span>
+    </div>
+</div>
+
 <!-- 项目列表 -->
 <div class="bg-white rounded-lg shadow">
-    <div class="px-6 py-4 border-b border-gray-200">
+    <div class="px-6 py-4 border-b border-gray-200 flex items-center justify-between">
         <h3 class="text-lg font-medium text-gray-900">项目列表</h3>
+        <span id="currentDateDisplay" class="text-sm text-gray-500"></span>
     </div>
     <div id="project-list" class="divide-y divide-gray-200">
         <div class="p-6 text-center text-gray-500">加载中...</div>
@@ -55,12 +68,58 @@
 
 {% block scripts %}
 <script>
-    // 页面加载时获取项目列表
-    document.addEventListener('DOMContentLoaded', loadProjects);
+    let currentDate = '';  // 当前选中的日期
+
+    // 页面加载时获取项目列表和日期列表
+    document.addEventListener('DOMContentLoaded', function() {
+        loadCrawlDates();
+        loadProjects();
+    });
+
+    // 加载抓取日期列表
+    async function loadCrawlDates() {
+        try {
+            console.log('开始加载抓取日期列表...');
+            const result = await apiRequest('/api/crawl-dates');
+            console.log('抓取日期 API 返回:', result);
+            const selector = document.getElementById('dateSelector');
+            const batches = result.data.batches;
+
+            if (batches.length === 0) {
+                selector.innerHTML = '<option value="">暂无抓取记录</option>';
+                return;
+            }
+
+            selector.innerHTML = batches.map(batch => `
+                <option value="${batch.crawl_date}">
+                    ${batch.crawl_date} (${batch.projects_count}个项目) - ${batch.status}
+                </option>
+            `).join('');
+
+            // 默认选中最新日期
+            if (batches.length > 0) {
+                currentDate = batches[0].crawl_date;
+                document.getElementById('currentDateDisplay').textContent = `日期：${currentDate}`;
+            }
+            console.log('日期选择器加载完成');
+        } catch (error) {
+            console.error('加载日期列表失败:', error);
+            const selector = document.getElementById('dateSelector');
+            selector.innerHTML = '<option value="">加载失败</option>';
+        }
+    }
+
+    // 按日期加载项目
+    function loadProjectsWithDate(date) {
+        currentDate = date;
+        document.getElementById('currentDateDisplay').textContent = date ? `日期：${date}` : '最新数据';
+        loadProjects();
+    }
 
     async function loadProjects() {
         try {
-            const result = await apiRequest('/api/projects?per_page=25');
+            const dateParam = currentDate ? `&date=${currentDate}` : '';
+            const result = await apiRequest(`/api/projects?per_page=25${dateParam}`);
             const container = document.getElementById('project-list');
 
             if (result.data.projects.length === 0) {

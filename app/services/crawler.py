@@ -5,7 +5,7 @@ import requests
 from bs4 import BeautifulSoup
 from datetime import datetime
 from app import db
-from app.models import TrendingProject
+from app.models import TrendingProject, CrawlBatch
 import logging
 
 logger = logging.getLogger(__name__)
@@ -128,30 +128,81 @@ class GitHubCrawler:
     def crawl_and_save(self, crawl_date=None):
         """执行完整抓取流程并保存"""
         crawl_date = crawl_date or datetime.now().date()
+        started_at = datetime.now()
 
-        # 检查是否已抓取
-        existing = TrendingProject.query.filter_by(crawl_date=crawl_date).count()
-        if existing > 0:
-            logger.info(f"{crawl_date} 的数据已存在，共 {existing} 条")
-            return existing
+        # 检查是否已存在该日期的批次记录
+        batch = CrawlBatch.query.filter_by(crawl_date=crawl_date).first()
+        if batch:
+            # 更新现有批次
+            batch.status = 'processing'
+            batch.started_at = started_at
+            batch.error_message = None
+        else:
+            # 创建新批次
+            batch = CrawlBatch(
+                crawl_date=crawl_date,
+                started_at=started_at,
+                status='processing'
+            )
+            db.session.add(batch)
+            db.session.flush()  # 获取 batch.id
 
-        # 抓取页面
-        html = self.fetch_trending_page()
+        try:
+            # 抓取页面
+            html = self.fetch_trending_page()
 
-        # 解析项目
-        projects = self.parse_trending_projects(html, crawl_date)
+            # 解析项目
+            projects = self.parse_trending_projects(html, crawl_date)
 
-        # 获取 README 并保存
-        for project in projects:
-            readme_content, readme_url = self.fetch_readme(project.owner, project.name)
-            if readme_content:
-                project.readme_raw = readme_content
-                project.readme_url = readme_url
+            saved_count = 0
+            updated_count = 0
 
-            db.session.add(project)
-            logger.info(f"抓取项目：{project.full_name}")
+            # 获取 README 并保存/更新
+            for project in projects:
+                readme_content, readme_url = self.fetch_readme(project.owner, project.name)
+                if readme_content:
+                    project.readme_raw = readme_content
+                    project.readme_url = readme_url
 
-        db.session.commit()
-        logger.info(f"抓取完成，共 {len(projects)} 个项目")
+                # 检查今天是否已存在该项目
+                existing_project = TrendingProject.query.filter_by(
+                    full_name=project.full_name,
+                    crawl_date=crawl_date
+                ).first()
 
-        return len(projects)
+                if existing_project:
+                    # 更新现有项目（同一天的重复抓取）
+                    existing_project.rank = project.rank
+                    existing_project.description = project.description
+                    existing_project.language = project.language
+                    existing_project.stars = project.stars
+                    existing_project.forks = project.forks
+                    existing_project.topics = project.topics
+                    existing_project.html_url = project.html_url
+                    if readme_content:
+                        existing_project.readme_raw = readme_content
+                        existing_project.readme_url = readme_url
+                    db.session.add(existing_project)
+                    updated_count += 1
+                    logger.info(f"更新项目：{project.full_name}")
+                else:
+                    # 插入新项目（添加批次关联）
+                    project.batch_id = batch.id
+                    db.session.add(project)
+                    saved_count += 1
+                    logger.info(f"抓取项目：{project.full_name}")
+
+            batch.projects_count = saved_count + updated_count
+            batch.completed_at = datetime.now()
+            batch.status = 'completed'
+            db.session.commit()
+
+            logger.info(f"抓取完成，新增 {saved_count} 个，更新 {updated_count} 个，共 {saved_count + updated_count} 个项目")
+            return saved_count + updated_count
+
+        except Exception as e:
+            batch.status = 'failed'
+            batch.error_message = str(e)
+            db.session.commit()
+            logger.error(f"抓取失败：{e}")
+            raise

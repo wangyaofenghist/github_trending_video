@@ -1,6 +1,6 @@
 """
 GitHub Trending 视频生成服务
-使用 FFmpeg 或剪映自动化生成视频
+支持 FFmpeg 本地生成和可灵 AI 云生成
 """
 import os
 import logging
@@ -23,6 +23,20 @@ class VideoGenerator:
         self.temp_dir = os.path.join(self.output_dir, 'temp')
         os.makedirs(self.output_dir, exist_ok=True)
         os.makedirs(self.temp_dir, exist_ok=True)
+
+        # 可灵 AI 配置
+        self.kling_app_key = getattr(config, 'KLING_APP_KEY', None) or config.get('KLING_APP_KEY')
+        self.kling_app_secret = getattr(config, 'KLING_APP_SECRET', None) or config.get('KLING_APP_SECRET')
+        self.use_kling = bool(self.kling_app_key and self.kling_app_secret)
+
+        # 初始化可灵 AI 客户端
+        if self.use_kling:
+            from app.services.kling_ai import KlingAIClient
+            self.kling_client = KlingAIClient(self.kling_app_key, self.kling_app_secret)
+            logger.info("可灵 AI 客户端已初始化")
+        else:
+            self.kling_client = None
+            logger.info("可灵 AI 未配置，使用本地 FFmpeg 生成")
 
         # 检查 FFmpeg 是否可用
         self.ffmpeg_available = self._check_ffmpeg()
@@ -53,17 +67,146 @@ class VideoGenerator:
         """
         logger.info(f"开始生成视频：{script.script_title}")
 
-        if not self.ffmpeg_available:
-            # FFmpeg 不可用时，返回明确错误
-            logger.warning("FFmpeg 未安装，无法生成视频")
-            raise RuntimeError(
-                "FFmpeg 未安装，无法生成视频。\n"
-                "请安装 FFmpeg:\n"
-                "  - macOS: brew install ffmpeg\n"
-                "  - Ubuntu: sudo apt-get install ffmpeg\n"
-                "  - Windows: 从 https://ffmpeg.org/download.html 下载\n"
-                "或者使用剪映专业版手动制作视频"
+        # 优先使用可灵 AI 生成（如果已配置）
+        if self.use_kling and self.kling_client:
+            return self._generate_video_by_kling(script)
+
+        # 使用本地 FFmpeg 生成
+        return self._generate_video_by_ffmpeg(script, images, bgm_path)
+
+    def _generate_video_by_kling(self, script) -> Dict:
+        """
+        使用可灵 AI 生成视频
+
+        Args:
+            script: VideoScript 对象
+
+        Returns:
+            dict: {'video_path': str, 'video_url': str}
+        """
+        logger.info("使用可灵 AI 生成视频...")
+
+        try:
+            # 构建视频生成提示词
+            prompt = self._build_kling_prompt(script)
+
+            # 提交任务
+            result = self.kling_client.text_to_video(
+                prompt=prompt,
+                model="kling-v1",
+                duration=10,  # 10 秒
+                resolution="720p",
+                aspect_ratio="16:9"
             )
+
+            if not result.get("success"):
+                raise RuntimeError(f"提交可灵 AI 任务失败：{result.get('error')}")
+
+            task_id = result["task_id"]
+            logger.info(f"可灵 AI 任务已提交：{task_id}，等待完成...")
+
+            # 等待任务完成
+            final_result = self.kling_client.wait_for_completion(task_id, timeout=600, poll_interval=10)
+
+            if not final_result.get("success"):
+                raise RuntimeError(f"可灵 AI 任务失败：{final_result.get('error')}")
+
+            if final_result.get("status") != "succeeded":
+                raise RuntimeError(f"可灵 AI 任务状态异常：{final_result.get('status')}")
+
+            video_url = final_result.get("video_url")
+            if not video_url:
+                raise RuntimeError("可灵 AI 未返回视频 URL")
+
+            # 下载视频到本地
+            video_path = self._download_kling_video(video_url, script.project_id)
+
+            logger.info(f"可灵 AI 视频下载完成：{video_path}")
+
+            return {
+                'video_path': video_path,
+                'video_url': f'/videos/{os.path.basename(video_path)}'
+            }
+
+        except Exception as e:
+            logger.error(f"可灵 AI 生成视频失败：{e}")
+            # 降级到本地 FFmpeg 生成
+            logger.info("降级到本地 FFmpeg 生成...")
+            return self._generate_video_by_ffmpeg(script, None, None)
+
+    def _build_kling_prompt(self, script) -> str:
+        """
+        构建可灵 AI 视频生成提示词
+
+        Args:
+            script: VideoScript 对象
+
+        Returns:
+            str: 优化后的提示词
+        """
+        # 提取关键信息
+        title = script.script_title or "项目介绍"
+        content = script.script_content or ""
+        highlights = script.key_highlights or ""
+
+        # 构建详细描述
+        prompt = f"""
+这是一个科技类短视频，介绍一个优秀的开源项目。
+
+视频主题：{title}
+
+项目特色：
+{highlights}
+
+视频风格要求：
+1. 现代科技感，简洁专业的视觉风格
+2. 蓝色或深色背景，体现科技感
+3. 包含代码展示、界面演示等元素
+4. 流畅的转场和动效
+5. 适合 B 站、抖音等短视频平台
+
+视频节奏：
+- 开场 2 秒：吸引眼球的标题动画
+- 中间 6 秒：项目特色展示，包含代码/界面演示
+- 结尾 2 秒：总结和行动号召
+
+整体氛围：专业、现代、科技感十足
+""".strip()
+
+        return prompt
+
+    def _download_kling_video(self, video_url: str, project_id: int) -> str:
+        """
+        下载可灵 AI 生成的视频到本地
+
+        Args:
+            video_url: 视频 URL
+            project_id: 项目 ID
+
+        Returns:
+            str: 本地视频路径
+        """
+        import requests
+
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        video_filename = f"kling_video_{project_id}_{timestamp}.mp4"
+        video_path = os.path.join(self.output_dir, video_filename)
+
+        # 下载视频
+        response = requests.get(video_url, stream=True, timeout=60)
+        response.raise_for_status()
+
+        with open(video_path, 'wb') as f:
+            for chunk in response.iter_content(chunk_size=8192):
+                f.write(chunk)
+
+        logger.info(f"视频已下载到：{video_path}")
+        return video_path
+
+    def _generate_video_by_ffmpeg(self, script, images: Optional[List] = None, bgm_path: Optional[str] = None) -> Dict:
+        """
+        使用 FFmpeg 生成视频（原有逻辑）
+        """
 
         # 准备素材
         project_id = script.project_id
